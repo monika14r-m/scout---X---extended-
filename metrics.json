@@ -1,0 +1,146 @@
+{
+  "run_config": {
+    "duration_s": 60.0,
+    "hz": 10.0,
+    "seed": 42,
+    "n_samples": 600
+  },
+  "confusion_matrix": {
+    "tp": 76,
+    "fp": 4,
+    "tn": 481,
+    "fn": 39
+  },
+  "precision": 0.95,
+  "recall_detection_rate": 0.6609,
+  "f1_score": 0.7795,
+  "false_positive_rate": 0.0082,
+  "avg_detection_latency_seconds": 0.0,
+  "per_attack_detection": {
+    "gps_spoofing": {
+      "start_s": 12.0,
+      "end_s": 15.0,
+      "first_detected_at_s": 12.0,
+      "detected": true,
+      "latency_s": 0.0
+    },
+    "imu_manipulation": {
+      "start_s": 24.0,
+      "end_s": 26.0,
+      "first_detected_at_s": 24.0,
+      "detected": true,
+      "latency_s": 0.0
+    },
+    "control_hijack": {
+      "start_s": 36.0,
+      "end_s": 40.0,
+      "first_detected_at_s": 36.0,
+      "detected": true,
+      "latency_s": 0.0
+    },
+    "baro_interference": {
+      "start_s": 48.0,
+      "end_s": 50.5,
+      "first_detected_at_s": 48.0,
+      "detected": true,
+      "latency_s": 0.0
+    }
+  },
+  "response_actions": [
+    {
+      "timestamp": 12.0,
+      "action": "ISOLATE",
+      "component": "gps",
+      "trust_score": 0.1
+    },
+    {
+      "timestamp": 12.2,
+      "action": "EMERGENCY_ESCALATION",
+      "reason": "sustained_compromise",
+      "components": [
+        "gps"
+      ]
+    },
+    {
+      "timestamp": 12.2,
+      "action": "RTL_TRIGGERED",
+      "note": "Falling back to last known-good waypoint / return-to-launch."
+    },
+    {
+      "timestamp": 12.2,
+      "action": "SECURE_WIPE_TRIGGERED",
+      "note": "Simulated wipe of mission-sensitive telemetry/config from onboard storage."
+    },
+    {
+      "timestamp": 18.1,
+      "action": "RESTORE",
+      "component": "gps"
+    },
+    {
+      "timestamp": 21.8,
+      "action": "ISOLATE",
+      "component": "command_channel",
+      "trust_score": 0.0
+    },
+    {
+      "timestamp": 21.9,
+      "action": "RESTORE",
+      "component": "command_channel"
+    },
+    {
+      "timestamp": 24.0,
+      "action": "ISOLATE",
+      "component": "imu",
+      "trust_score": 0.23719366698728206
+    },
+    {
+      "timestamp": 27.9,
+      "action": "RESTORE",
+      "component": "imu"
+    },
+    {
+      "timestamp": 36.0,
+      "action": "ISOLATE",
+      "component": "command_channel",
+      "trust_score": 0.0
+    },
+    {
+      "timestamp": 36.1,
+      "action": "RESTORE",
+      "component": "command_channel"
+    },
+    {
+      "timestamp": 40.0,
+      "action": "ISOLATE",
+      "component": "command_channel",
+      "trust_score": 0.0
+    },
+    {
+      "timestamp": 40.1,
+      "action": "RESTORE",
+      "component": "command_channel"
+    },
+    {
+      "timestamp": 43.7,
+      "action": "ISOLATE",
+      "component": "command_channel",
+      "trust_score": 0.0
+    },
+    {
+      "timestamp": 43.8,
+      "action": "RESTORE",
+      "component": "command_channel"
+    },
+    {
+      "timestamp": 48.0,
+      "action": "ISOLATE",
+      "component": "barometer",
+      "trust_score": 0.31249694987681065
+    },
+    {
+      "timestamp": 52.9,
+      "action": "RESTORE",
+      "component": "barometer"
+    }
+  ]
+}
