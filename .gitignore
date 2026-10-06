@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.log
+logs/*
+!.gitkeep
+*.bag
+*.ulg
+*.bin
+.env
+.vscode/
+.idea/
