@@ -1,13 +1,4 @@
 __pycache__/
-*.pyc
+*.py[cod]
 .venv/
-venv/
-*.log
-logs/*
-!.gitkeep
-*.bag
-*.ulg
-*.bin
-.env
-.vscode/
-.idea/
+scoutx_live/logs/
