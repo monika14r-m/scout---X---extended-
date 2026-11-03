@@ -62,7 +62,7 @@ Run only against local SITL, never a physical aircraft.
 bash simulation/run_case.sh case1-command
 ~~~
 
-After explicit confirmation, the script sends GUIDED/ARM/TAKEOFF to SITL. Watch the Iris in Gazebo.
+After explicit confirmation, the script requests GUIDED mode, then sends ARM and TAKEOFF to SITL. It waits for a matching MAVLink COMMAND_ACK for both commands and stops if either is rejected or times out. Watch the Iris in Gazebo.
 
 ### Case 2 — GCS signal / packet loss
 
