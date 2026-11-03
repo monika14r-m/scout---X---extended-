@@ -55,6 +55,39 @@ def request_mode(master, mode):
     log_event("FLIGHT_MODE_REQUESTED", requested_mode=mode)
 
 
+
+def send_command_and_confirm(master, command, params, label, timeout=8):
+    """Send a COMMAND_LONG and require an explicit accepted COMMAND_ACK."""
+    master.mav.command_long_send(
+        master.target_system,
+        master.target_component,
+        command,
+        0,
+        *params,
+    )
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        remaining = max(0.1, deadline - time.monotonic())
+        ack = master.recv_match(type="COMMAND_ACK", blocking=True, timeout=remaining)
+        if ack is None or ack.command != command:
+            continue
+        accepted = ack.result == mavutil.mavlink.MAV_RESULT_ACCEPTED
+        log_event(
+            "GCS_COMMAND_ACKNOWLEDGED" if accepted else "GCS_COMMAND_REJECTED",
+            command=label,
+            command_id=int(command),
+            ack_result=int(ack.result),
+        )
+        if not accepted:
+            raise RuntimeError(
+                f"SITL rejected {label} (COMMAND_ACK result={ack.result}). "
+                "Check vehicle state and pre-arm messages."
+            )
+        return
+    log_event("GCS_COMMAND_ACK_TIMEOUT", command=label, command_id=int(command), timeout_s=timeout)
+    raise TimeoutError(f"No COMMAND_ACK received for {label} within {timeout} seconds.")
+
+
 def run_gps_spoof(master, offset_m, response):
     gps, pos = read_position(master)
     print("\n[BASELINE] Live SITL GPS / position")
@@ -106,17 +139,39 @@ def run_critical(master):
 
 
 def run_case1_command(master, takeoff_m):
+    if not math.isfinite(takeoff_m) or not 1.0 <= takeoff_m <= 20.0:
+        raise ValueError("takeoff altitude must be between 1 and 20 metres for this SITL demo")
     gps, pos = read_position(master)
     log_event("GCS_COMMAND_RECEIVED", command="TAKEOFF", target_altitude_m=takeoff_m)
     mapping = master.mode_mapping() or {}
     if "GUIDED" not in mapping:
         raise RuntimeError("GUIDED mode unavailable in this vehicle mode map.")
-    master.mav.set_mode_send(master.target_system, mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED, mapping["GUIDED"])
-    master.mav.command_long_send(master.target_system, master.target_component, mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, 0, 1, 0, 0, 0, 0, 0, 0)
-    time.sleep(2)
-    master.mav.command_long_send(master.target_system, master.target_component, mavutil.mavlink.MAV_CMD_NAV_TAKEOFF, 0, 0, 0, 0, float("nan"), 0, 0, takeoff_m)
-    log_event("GCS_COMMAND_TRANSMITTED", command="GUIDED_ARM_TAKEOFF", target_altitude_m=takeoff_m)
-    print("[CASE 1] GCS command sent to SITL. Watch the Iris in Gazebo.")
+    master.mav.set_mode_send(
+        master.target_system,
+        mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+        mapping["GUIDED"],
+    )
+    time.sleep(1)
+    send_command_and_confirm(
+        master,
+        mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
+        [1, 0, 0, 0, 0, 0, 0],
+        "ARM",
+    )
+    send_command_and_confirm(
+        master,
+        mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
+        [0, 0, 0, float("nan"), 0, 0, takeoff_m],
+        "TAKEOFF",
+    )
+    log_event(
+        "GCS_COMMAND_TRANSMITTED",
+        command="GUIDED_ARM_TAKEOFF",
+        target_altitude_m=takeoff_m,
+        arm_acknowledged=True,
+        takeoff_acknowledged=True,
+    )
+    print("[CASE 1] SITL acknowledged ARM and TAKEOFF commands. Watch the Iris in Gazebo.")
     log_event("GCS_COMMAND_MONITORING", gps=gps, position=pos)
 
 
