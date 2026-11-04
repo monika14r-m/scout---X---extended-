@@ -7,6 +7,8 @@ from pathlib import Path
 
 from pymavlink import mavutil
 
+from .heartbeat_watchdog import HeartbeatWatchdog
+
 LOG_DIR = Path(__file__).resolve().parent / "logs"
 LOG_FILE = LOG_DIR / "security_events.jsonl"
 
@@ -114,20 +116,67 @@ def run_gps_spoof(master, offset_m, response):
         print("[RESULT] Offset below detection threshold; no response requested.")
 
 
-def run_gcs_loss(master, timeout_s, response):
-    print(f"\n[CASE 2] Monitoring simulated GCS heartbeat for {timeout_s:.1f}s")
-    print("[SCOUT-X] Simulating application-layer GCS heartbeat loss.")
-    last_heartbeat = time.monotonic()
-    simulated_gcs_heartbeat = True
-    time.sleep(timeout_s)
-    simulated_gcs_heartbeat = False
-    elapsed = time.monotonic() - last_heartbeat
-    if not simulated_gcs_heartbeat and elapsed >= timeout_s:
-        log_event("GCS_HEARTBEAT_LOSS_DETECTED", timeout_s=timeout_s, elapsed_s=round(elapsed, 2), response=response, injection_layer="SCOUT_X_APPLICATION_HEARTBEAT_SIMULATION")
-        print("[DETECTION] GCS heartbeat timeout detected.")
-        print("[RESPONSE] Requesting selected SITL response.")
-        request_mode(master, response)
-        log_event("GCS_LOSS_SCENARIO_COMPLETE", result="DETECTED", response=response)
+def run_gcs_loss(master, gcs_endpoint, timeout_s, startup_timeout_s, response):
+    """Detect a missing GCS heartbeat while retaining the SITL response link."""
+    watchdog = HeartbeatWatchdog(timeout_s)
+    if not math.isfinite(startup_timeout_s) or startup_timeout_s <= 0:
+        raise ValueError("GCS startup timeout must be a finite positive number")
+
+    print(f"\n[CASE 2] Waiting for an initial GCS HEARTBEAT on {gcs_endpoint}")
+    print(f"[SCOUT-X] GCS startup timeout: {startup_timeout_s:.1f}s; loss threshold: {timeout_s:.1f}s")
+    gcs = mavutil.mavlink_connection(gcs_endpoint, autoreconnect=True)
+
+    def record_gcs_heartbeat(message, now=None):
+        if watchdog.observe(message, now=now):
+            log_event(
+                "GCS_HEARTBEAT_RECEIVED",
+                endpoint=gcs_endpoint,
+                source_system=int(message.get_srcSystem()),
+                source_component=int(message.get_srcComponent()),
+            )
+            return True
+        return False
+
+    try:
+        startup_deadline = time.monotonic() + startup_timeout_s
+        while not watchdog.has_seen_heartbeat:
+            remaining = startup_deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(
+                    f"No MAV_TYPE_GCS HEARTBEAT received on {gcs_endpoint} within "
+                    f"{startup_timeout_s:.1f}s. No loss response was sent; configure the "
+                    "GCS/bridge to send its MAVLink heartbeat to this endpoint."
+                )
+            message = gcs.recv_match(
+                type="HEARTBEAT", blocking=True, timeout=min(1.0, remaining)
+            )
+            record_gcs_heartbeat(message)
+
+        print("[SCOUT-X] Initial GCS heartbeat received; monitoring for missed heartbeats.")
+        while True:
+            remaining = watchdog.seconds_until_timeout()
+            message = gcs.recv_match(
+                type="HEARTBEAT", blocking=True, timeout=min(1.0, max(0.1, remaining))
+            )
+            now = time.monotonic()
+            if watchdog.is_lost(now):
+                elapsed = now - watchdog.last_heartbeat_at
+                log_event(
+                    "GCS_HEARTBEAT_LOSS_DETECTED",
+                    timeout_s=timeout_s,
+                    elapsed_s=round(elapsed, 2),
+                    response=response,
+                    endpoint=gcs_endpoint,
+                    injection_layer="INDEPENDENT_MAVLINK_GCS_HEARTBEAT",
+                )
+                print(f"[DETECTION] No GCS HEARTBEAT for {elapsed:.1f}s.")
+                print("[RESPONSE] Requesting selected SITL response over the vehicle link.")
+                request_mode(master, response)
+                log_event("GCS_LOSS_SCENARIO_COMPLETE", result="DETECTED", response=response)
+                return
+            record_gcs_heartbeat(message, now=now)
+    finally:
+        gcs.close()
 
 
 def run_critical(master):
@@ -187,7 +236,9 @@ def main():
     run.add_argument("--takeoff-m", type=float, default=5.0)
     run.add_argument("--confirm-sitl", action="store_true", help="Required before Case 1 sends an arm/takeoff command to SITL")
     run.add_argument("--offset-m", type=float, default=35.0)
-    run.add_argument("--timeout-s", type=float, default=3.0)
+    run.add_argument("--timeout-s", type=float, default=3.0, help="Maximum allowed time between GCS heartbeats in Case 2")
+    run.add_argument("--gcs-heartbeat-connect", default="udpin:127.0.0.1:14551", help="Independent UDP listener receiving GCS MAVLink heartbeats")
+    run.add_argument("--gcs-startup-timeout-s", type=float, default=15.0, help="How long to wait for the first GCS heartbeat before aborting Case 2")
     run.add_argument("--response", choices=["NONE", "LOITER", "RTL"], default="NONE")
     args = parser.parse_args()
     master = connect_vehicle(args.connect, args.heartbeat_timeout)
@@ -201,7 +252,7 @@ def main():
             raise SystemExit("Case 1 can arm/take off SITL. Re-run with --confirm-sitl only after confirming this is simulation-only.")
         run_case1_command(master, args.takeoff_m)
     elif args.case == "case2-gcs-loss":
-        run_gcs_loss(master, max(1.0, args.timeout_s), args.response)
+        run_gcs_loss(master, args.gcs_heartbeat_connect, args.timeout_s, args.gcs_startup_timeout_s, args.response)
     elif args.case == "case3-critical-hijack":
         run_critical(master)
     elif args.case == "gps-spoof":

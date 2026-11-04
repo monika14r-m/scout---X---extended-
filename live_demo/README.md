@@ -5,7 +5,7 @@ A simulation-only add-on for SCOUT-X. It connects to ArduPilot SITL over MAVLink
 ## What each scenario does
 
 - **Case 1 — GCS command execution:** sends GUIDED, ARM and TAKEOFF commands to ArduPilot SITL. This is a real command to the simulated vehicle; it requires the explicit `--confirm-sitl` flag.
-- **Case 2 — GCS heartbeat loss:** simulates an application-layer GCS heartbeat timeout while keeping the MAVLink control channel available for a response. It can request RTL or LOITER. This is not a real radio/network outage.
+- **Case 2 — GCS heartbeat loss:** listens for GCS-originated MAVLink `HEARTBEAT` messages on a separate UDP endpoint. After at least one valid GCS heartbeat is observed, it detects when the heartbeat stream exceeds the configured inactivity threshold. It can request RTL or LOITER over the independent SITL connection. This is not a physical radio/network outage.
 - **Case 3 — critical hijack alert:** records a simulated critical incident and locks the demo controller. It does not erase host files or perform destructive actions.
 - **Additional GPS spoof test:** creates a synthetic spoofed *shadow observation* and compares it with live SITL GPS. It does not alter ArduPilot's EKF/GPS input and is not RF spoofing.
 
@@ -51,7 +51,7 @@ python3 -m pip install -r live_demo/requirements.txt
 python3 -m scoutx_live --help
 ```
 
-The package directory is `live_demo/scoutx_live`; copy it to the repository root as `scoutx_live/` before running the commands below, or adjust `PYTHONPATH=live_demo` when running.
+Run commands from the repository root with `PYTHONPATH=live_demo`; no package copy is needed.
 
 Read-only telemetry check:
 
@@ -69,11 +69,15 @@ PYTHONPATH=live_demo python3 -m scoutx_live run --case case1-command --connect u
 
 Watch the Iris in Gazebo. Only run in the empty simulation world.
 
-**Case 2 — simulated GCS heartbeat loss + RTL:**
+**Case 2 — actual GCS heartbeat monitoring + RTL:**
+
+First configure the GCS or MAVLink bridge to send its outbound MAVLink stream, including GCS `HEARTBEAT` messages, to the SCOUT-X listener at `127.0.0.1:14551`. The SITL vehicle connection remains separate on UDP 14550. Then run:
 
 ```bash
-PYTHONPATH=live_demo python3 -m scoutx_live run --case case2-gcs-loss --connect udp:127.0.0.1:14550 --timeout-s 3 --response RTL
+PYTHONPATH=live_demo python3 -m scoutx_live run --case case2-gcs-loss --connect udp:127.0.0.1:14550 --gcs-heartbeat-connect udpin:127.0.0.1:14551 --gcs-startup-timeout-s 15 --timeout-s 3 --response RTL
 ```
+
+SCOUT-X waits for the first valid GCS heartbeat before starting the watchdog. If none arrives within 15 seconds, it exits without claiming a heartbeat loss or sending a response. After the initial heartbeat, stop the GCS heartbeat stream; if no new GCS heartbeat arrives within three seconds, SCOUT-X records the loss and requests RTL over the still-available SITL link. For another listener, pass `--gcs-heartbeat-connect` or set `SCOUTX_GCS_HEARTBEAT_ENDPOINT` when using `simulation/run_case.sh`.
 
 **Case 3 — critical hijack indicator + demo lockdown:**
 
@@ -89,13 +93,19 @@ PYTHONPATH=live_demo python3 -m scoutx_live run --case gps-spoof --connect udp:1
 
 Logs are written to `live_demo/scoutx_live/logs/security_events.jsonl`.
 
+Run the lightweight tests from the repository root:
+
+```bash
+PYTHONPATH=live_demo python3 -m unittest discover -s live_demo/tests -v
+```
+
 ## Safety and limitations
 
 - Simulation-only. Do not connect to a real vehicle.
 - Case 1 sends ARM/TAKEOFF to SITL only after explicit `--confirm-sitl`.
-- Case 2 simulates the heartbeat timeout inside the SCOUT-X monitor; the underlying MAVLink link remains available so a response can be sent.
+- Case 2 monitors an independent GCS-originated MAVLink heartbeat stream. It requires an initial GCS heartbeat and a working vehicle link for the response; it does not simulate RF interference or prove a physical radio outage.
 - GPS spoofing is injected into SCOUT-X's shadow copy only, not into the autopilot's EKF or physical GNSS receiver.
 - Case 3 performs no file deletion, secure wipe, or real system lockout.
 - RTL/LOITER availability depends on vehicle state and home/GPS validity. Observe SITL and MAVProxy output.
 
-**Validation status:** Python syntax and the included lightweight unit test were checked. A successful live Gazebo/SITL run has not yet been verified; confirm heartbeat and telemetry before demonstrating.
+**Validation status:** The heartbeat watchdog unit tests and Python syntax checks are part of local validation. A successful live Gazebo/SITL + GCS heartbeat run still needs to be confirmed on the simulation workstation.

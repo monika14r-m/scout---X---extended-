@@ -15,6 +15,7 @@ if [[ -z "$CASE" ]]; then
 fi
 
 CONNECT="${SCOUTX_MAVLINK_ENDPOINT:-udp:127.0.0.1:14550}"
+GCS_HEARTBEAT_CONNECT="${SCOUTX_GCS_HEARTBEAT_ENDPOINT:-udpin:127.0.0.1:14551}"
 BASE=(python3 -m scoutx_live run --connect "$CONNECT" --case "$CASE")
 
 case "$CASE" in
@@ -25,7 +26,7 @@ case "$CASE" in
     exec env PYTHONPATH="$ROOT/live_demo" "${BASE[@]}" --confirm-sitl --takeoff-m 5
     ;;
   case2-gcs-loss)
-    exec env PYTHONPATH="$ROOT/live_demo" "${BASE[@]}" --timeout-s 3 --response RTL
+    exec env PYTHONPATH="$ROOT/live_demo" "${BASE[@]}" --gcs-heartbeat-connect "$GCS_HEARTBEAT_CONNECT" --timeout-s 3 --response RTL
     ;;
   case3-critical-hijack)
     exec env PYTHONPATH="$ROOT/live_demo" "${BASE[@]}"

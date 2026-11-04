@@ -64,13 +64,17 @@ bash simulation/run_case.sh case1-command
 
 After explicit confirmation, the script requests GUIDED mode, then sends ARM and TAKEOFF to SITL. It waits for a matching MAVLink COMMAND_ACK for both commands and stops if either is rejected or times out. Watch the Iris in Gazebo.
 
-### Case 2 — GCS signal / packet loss
+### Case 2 — GCS heartbeat loss
+
+Configure the GCS or MAVLink bridge to send its outbound MAVLink stream, including GCS `HEARTBEAT` messages, to the SCOUT-X listener at `127.0.0.1:14551`. The vehicle connection remains on UDP 14550. Then run:
 
 ~~~bash
 bash simulation/run_case.sh case2-gcs-loss
 ~~~
 
-This injects an application-level SCOUT-X heartbeat timeout and can request a SITL safe mode. It does not physically disconnect MAVLink or disable a radio.
+The script waits for the first valid GCS heartbeat, then detects when the stream exceeds the three-second inactivity threshold and requests RTL over the separate SITL link. If no initial GCS heartbeat arrives within the 15-second startup window, the case aborts without claiming loss or sending a response. To use another GCS listener, set `SCOUTX_GCS_HEARTBEAT_ENDPOINT`, for example `udpin:127.0.0.1:14552`.
+
+This detects loss of the configured GCS heartbeat stream. It does not physically disconnect MAVLink, simulate RF interference, or prove a radio outage.
 
 ### Case 3 — Critical attack / hijack indicator
 
@@ -88,7 +92,13 @@ bash simulation/run_case.sh gps-spoof
 
 This creates a synthetic offset in SCOUT-X shadow telemetry and compares it with the live SITL reference. It does not inject spoofed GPS into the flight controller or transmit RF signals.
 
-## Evidence and logs
+## Tests, evidence and logs
+
+Run the lightweight Python tests from the repository root:
+
+~~~bash
+PYTHONPATH=live_demo python3 -m unittest discover -s live_demo/tests -v
+~~~
 
 JSON Lines events are written to live_demo/scoutx_live/logs/security_events.jsonl.
 

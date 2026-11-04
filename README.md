@@ -23,7 +23,7 @@ Run a scenario from the repository root with `bash simulation/run_case.sh CASE_N
 ## Project cases
 
 1. **GCS command execution and logging** — send confirmed commands to SITL, observe the Iris in Gazebo, monitor telemetry and log the operation.
-2. **GCS signal / packet loss** — simulate an application-level GCS heartbeat timeout, monitor the loss and request a configured SITL response. This is not a physical radio outage.
+2. **GCS heartbeat loss** — monitor GCS-originated MAVLink `HEARTBEAT` messages on a dedicated UDP listener. If they stop arriving for the configured threshold, request a configured SITL response over the separate vehicle link. This is not a physical radio outage.
 3. **Critical attack / hijack indicator** — record a simulated critical incident, capture telemetry and lock the demo controller. No destructive wipe is performed.
 4. **Additional GPS anomaly** — compare authentic SITL reference telemetry with a synthetic shadow-data offset. It is not injected into the autopilot.
 
@@ -37,7 +37,7 @@ Run a scenario from the repository root with `bash simulation/run_case.sh CASE_N
 
 ## Important limitations
 
-The local launch workflow is intended for simulation only. Case 2 currently simulates an application-level heartbeat timeout, not a real radio/packet outage. The GPS anomaly is generated in SCOUT-X shadow telemetry, not injected into the flight controller. Case 3 is a non-destructive demo lockdown. Live MAVLink connectivity must be verified on the actual workstation before claiming an end-to-end live run.
+The local launch workflow is intended for simulation only. Case 2 requires the GCS or a MAVLink bridge to send its outbound stream, including GCS `HEARTBEAT` messages, to the independent listener (default `udpin:127.0.0.1:14551`). The first valid GCS heartbeat must arrive before monitoring begins; otherwise the case aborts without sending a response. The separate vehicle link must remain available for RTL/LOITER requests. This detects loss of the configured heartbeat stream, not RF interference or a guaranteed physical radio outage. The GPS anomaly is generated in SCOUT-X shadow telemetry, not injected into the flight controller. Case 3 is a non-destructive demo lockdown. Live MAVLink connectivity must be verified on the actual workstation before claiming an end-to-end live run.
 
 Real Gazebo recordings should be captured from the simulator and added under `docs/media/`. No simulated footage is fabricated or presented as a live recording.
 
