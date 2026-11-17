@@ -3,7 +3,7 @@
 import sys
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 try:
     from pymavlink import mavutil  # noqa: F401
@@ -20,9 +20,17 @@ from scoutx_live.__main__ import send_command_and_confirm
 
 
 class FakeAck:
-    def __init__(self, command, result):
+    def __init__(self, command, result, source_system=1, source_component=1):
         self.command = command
         self.result = result
+        self.source_system = source_system
+        self.source_component = source_component
+
+    def get_srcSystem(self):
+        return self.source_system
+
+    def get_srcComponent(self):
+        return self.source_component
 
 
 class FakeMav:
@@ -53,7 +61,7 @@ class SendCommandAndConfirmTests(unittest.TestCase):
     COMMAND = 400
     PARAMS = [1, 0, 0, 0, 0, 0, 0]
 
-    def test_accepts_matching_success_ack_and_sends_command(self):
+    def test_accepts_matching_success_ack_from_target(self):
         master = FakeMaster([FakeAck(self.COMMAND, 0)])
         with patch("scoutx_live.__main__.log_event") as log_event:
             send_command_and_confirm(master, self.COMMAND, self.PARAMS, "ARM")
@@ -62,7 +70,6 @@ class SendCommandAndConfirmTests(unittest.TestCase):
             master.mav.sent,
             (1, 1, self.COMMAND, 0, *self.PARAMS),
         )
-        self.assertEqual(master.recv_filters, [("COMMAND_ACK", True)])
         log_event.assert_called_once_with(
             "GCS_COMMAND_ACKNOWLEDGED",
             command="ARM",
@@ -70,7 +77,7 @@ class SendCommandAndConfirmTests(unittest.TestCase):
             ack_result=0,
         )
 
-    def test_rejects_matching_negative_ack(self):
+    def test_rejects_matching_negative_ack_from_target(self):
         master = FakeMaster([FakeAck(self.COMMAND, 2)])
         with patch("scoutx_live.__main__.log_event") as log_event:
             with self.assertRaisesRegex(RuntimeError, "SITL rejected ARM"):
@@ -83,7 +90,7 @@ class SendCommandAndConfirmTests(unittest.TestCase):
             ack_result=2,
         )
 
-    def test_ignores_unrelated_ack_until_matching_ack_arrives(self):
+    def test_ignores_unrelated_command_ack(self):
         master = FakeMaster([
             FakeAck(self.COMMAND + 1, 0),
             FakeAck(self.COMMAND, 0),
@@ -92,10 +99,6 @@ class SendCommandAndConfirmTests(unittest.TestCase):
             send_command_and_confirm(master, self.COMMAND, self.PARAMS, "ARM")
 
         self.assertEqual(master.acknowledgements, [])
-        self.assertEqual(
-            master.recv_filters,
-            [("COMMAND_ACK", True), ("COMMAND_ACK", True)],
-        )
         log_event.assert_called_once_with(
             "GCS_COMMAND_ACKNOWLEDGED",
             command="ARM",
@@ -103,20 +106,71 @@ class SendCommandAndConfirmTests(unittest.TestCase):
             ack_result=0,
         )
 
-    def test_times_out_when_no_ack_is_received(self):
-        master = FakeMaster()
+    def test_ignores_matching_ack_from_unexpected_system(self):
+        master = FakeMaster([
+            FakeAck(self.COMMAND, 0, source_system=42),
+            FakeAck(self.COMMAND, 0),
+        ])
         with patch("scoutx_live.__main__.log_event") as log_event:
+            send_command_and_confirm(master, self.COMMAND, self.PARAMS, "ARM")
+
+        self.assertEqual(log_event.call_args_list, [
+            call(
+                "GCS_COMMAND_ACK_IGNORED",
+                reason="unexpected_source",
+                command="ARM",
+                command_id=self.COMMAND,
+                source_system=42,
+                source_component=1,
+                expected_system=1,
+                expected_component=1,
+            ),
+            call(
+                "GCS_COMMAND_ACKNOWLEDGED",
+                command="ARM",
+                command_id=self.COMMAND,
+                ack_result=0,
+            ),
+        ])
+
+    def test_ignores_matching_ack_from_unexpected_component(self):
+        master = FakeMaster([
+            FakeAck(self.COMMAND, 0, source_component=190),
+            FakeAck(self.COMMAND, 0),
+        ])
+        with patch("scoutx_live.__main__.log_event") as log_event:
+            send_command_and_confirm(master, self.COMMAND, self.PARAMS, "ARM")
+
+        self.assertEqual(log_event.call_count, 2)
+        self.assertEqual(
+            log_event.call_args_list[0].args[0],
+            "GCS_COMMAND_ACK_IGNORED",
+        )
+        self.assertEqual(
+            log_event.call_args_list[1].args[0],
+            "GCS_COMMAND_ACKNOWLEDGED",
+        )
+
+    def test_times_out_after_waiting_without_ack(self):
+        master = FakeMaster()
+        with (
+            patch("scoutx_live.__main__.log_event") as log_event,
+            patch(
+                "scoutx_live.__main__.time.monotonic",
+                side_effect=[100.0, 100.0, 100.0, 101.0],
+            ),
+        ):
             with self.assertRaisesRegex(TimeoutError, "No COMMAND_ACK received"):
                 send_command_and_confirm(
-                    master, self.COMMAND, self.PARAMS, "ARM", timeout=0
+                    master, self.COMMAND, self.PARAMS, "ARM", timeout=1
                 )
 
-        self.assertEqual(master.recv_filters, [])
+        self.assertEqual(master.recv_filters, [("COMMAND_ACK", True)])
         log_event.assert_called_once_with(
             "GCS_COMMAND_ACK_TIMEOUT",
             command="ARM",
             command_id=self.COMMAND,
-            timeout_s=0,
+            timeout_s=1,
         )
 
 

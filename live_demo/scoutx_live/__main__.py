@@ -59,7 +59,7 @@ def request_mode(master, mode):
 
 
 def send_command_and_confirm(master, command, params, label, timeout=8):
-    """Send a COMMAND_LONG and require an explicit accepted COMMAND_ACK."""
+    """Require an accepted COMMAND_ACK from the targeted autopilot component."""
     master.mav.command_long_send(
         master.target_system,
         master.target_component,
@@ -73,6 +73,25 @@ def send_command_and_confirm(master, command, params, label, timeout=8):
         ack = master.recv_match(type="COMMAND_ACK", blocking=True, timeout=remaining)
         if ack is None or ack.command != command:
             continue
+
+        source_system = ack.get_srcSystem()
+        source_component = ack.get_srcComponent()
+        if (
+            source_system != master.target_system
+            or source_component != master.target_component
+        ):
+            log_event(
+                "GCS_COMMAND_ACK_IGNORED",
+                reason="unexpected_source",
+                command=label,
+                command_id=int(command),
+                source_system=int(source_system),
+                source_component=int(source_component),
+                expected_system=int(master.target_system),
+                expected_component=int(master.target_component),
+            )
+            continue
+
         accepted = ack.result == mavutil.mavlink.MAV_RESULT_ACCEPTED
         log_event(
             "GCS_COMMAND_ACKNOWLEDGED" if accepted else "GCS_COMMAND_REJECTED",
