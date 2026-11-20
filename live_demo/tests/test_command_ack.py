@@ -12,7 +12,7 @@ except ModuleNotFoundError:
     # tests runnable without installing the SITL dependency.
     pymavlink_stub = types.ModuleType("pymavlink")
     pymavlink_stub.mavutil = types.SimpleNamespace(
-        mavlink=types.SimpleNamespace(MAV_RESULT_ACCEPTED=0)
+        mavlink=types.SimpleNamespace(MAV_RESULT_ACCEPTED=0, MAV_RESULT_IN_PROGRESS=5)
     )
     sys.modules["pymavlink"] = pymavlink_stub
 
@@ -20,11 +20,12 @@ from scoutx_live.__main__ import send_command_and_confirm
 
 
 class FakeAck:
-    def __init__(self, command, result, source_system=1, source_component=1):
+    def __init__(self, command, result, source_system=1, source_component=1, progress=255):
         self.command = command
         self.result = result
         self.source_system = source_system
         self.source_component = source_component
+        self.progress = progress
 
     def get_srcSystem(self):
         return self.source_system
@@ -149,6 +150,56 @@ class SendCommandAndConfirmTests(unittest.TestCase):
         self.assertEqual(
             log_event.call_args_list[1].args[0],
             "GCS_COMMAND_ACKNOWLEDGED",
+        )
+
+    def test_waits_for_final_ack_after_in_progress(self):
+        master = FakeMaster([
+            FakeAck(self.COMMAND, 5, progress=35),
+            FakeAck(self.COMMAND, 0),
+        ])
+        with patch("scoutx_live.__main__.log_event") as log_event:
+            send_command_and_confirm(master, self.COMMAND, self.PARAMS, "ARM")
+
+        self.assertEqual(log_event.call_args_list, [
+            call(
+                "GCS_COMMAND_ACK_IN_PROGRESS",
+                command="ARM",
+                command_id=self.COMMAND,
+                progress=35,
+            ),
+            call(
+                "GCS_COMMAND_ACKNOWLEDGED",
+                command="ARM",
+                command_id=self.COMMAND,
+                ack_result=0,
+            ),
+        ])
+
+    def test_rejects_final_negative_ack_after_in_progress(self):
+        master = FakeMaster([
+            FakeAck(self.COMMAND, 5, progress=60),
+            FakeAck(self.COMMAND, 2),
+        ])
+        with patch("scoutx_live.__main__.log_event") as log_event:
+            with self.assertRaisesRegex(RuntimeError, "SITL rejected ARM"):
+                send_command_and_confirm(master, self.COMMAND, self.PARAMS, "ARM")
+
+        self.assertEqual(
+            [event.args[0] for event in log_event.call_args_list],
+            ["GCS_COMMAND_ACK_IN_PROGRESS", "GCS_COMMAND_REJECTED"],
+        )
+
+    def test_times_out_after_in_progress_without_final_ack(self):
+        master = FakeMaster([FakeAck(self.COMMAND, 5, progress=20)])
+        with patch("scoutx_live.__main__.log_event") as log_event:
+            with self.assertRaisesRegex(TimeoutError, "No COMMAND_ACK received"):
+                send_command_and_confirm(
+                    master, self.COMMAND, self.PARAMS, "ARM", timeout=0.01
+                )
+
+        self.assertEqual(
+            [event.args[0] for event in log_event.call_args_list],
+            ["GCS_COMMAND_ACK_IN_PROGRESS", "GCS_COMMAND_ACK_TIMEOUT"],
         )
 
     def test_times_out_after_waiting_without_ack(self):

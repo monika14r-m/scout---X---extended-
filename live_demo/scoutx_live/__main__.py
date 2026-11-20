@@ -92,6 +92,15 @@ def send_command_and_confirm(master, command, params, label, timeout=8):
             )
             continue
 
+        if ack.result == getattr(mavutil.mavlink, "MAV_RESULT_IN_PROGRESS", 5):
+            log_event(
+                "GCS_COMMAND_ACK_IN_PROGRESS",
+                command=label,
+                command_id=int(command),
+                progress=int(getattr(ack, "progress", 255)),
+            )
+            continue
+
         accepted = ack.result == mavutil.mavlink.MAV_RESULT_ACCEPTED
         log_event(
             "GCS_COMMAND_ACKNOWLEDGED" if accepted else "GCS_COMMAND_REJECTED",
