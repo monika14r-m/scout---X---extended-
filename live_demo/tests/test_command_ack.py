@@ -16,7 +16,11 @@ except ModuleNotFoundError:
     )
     sys.modules["pymavlink"] = pymavlink_stub
 
-from scoutx_live.__main__ import send_command_and_confirm
+from scoutx_live.__main__ import (
+    run_gps_spoof,
+    send_command_and_confirm,
+    validate_gps_spoof_offset,
+)
 
 
 class FakeAck:
@@ -223,6 +227,37 @@ class SendCommandAndConfirmTests(unittest.TestCase):
             command_id=self.COMMAND,
             timeout_s=1,
         )
+
+
+class GPSOffsetValidationTests(unittest.TestCase):
+    def test_accepts_zero_and_positive_offsets(self):
+        self.assertEqual(validate_gps_spoof_offset(0), 0.0)
+        self.assertEqual(validate_gps_spoof_offset(35), 35.0)
+        self.assertEqual(validate_gps_spoof_offset("12.5"), 12.5)
+
+    def test_rejects_negative_nonfinite_boolean_and_non_numeric_offsets(self):
+        cases = [
+            ("negative", -1),
+            ("nan", float("nan")),
+            ("positive infinity", float("inf")),
+            ("negative infinity", float("-inf")),
+            ("boolean", True),
+            ("text", "bad"),
+            ("null", None),
+        ]
+        for label, value in cases:
+            with self.subTest(label=label):
+                with self.assertRaises(ValueError):
+                    validate_gps_spoof_offset(value)
+
+    def test_invalid_offsets_fail_before_reading_telemetry(self):
+        invalid_offsets = (-1, float("nan"), float("inf"), True, "bad", None)
+        with patch("scoutx_live.__main__.read_position") as read_position:
+            for offset in invalid_offsets:
+                with self.subTest(offset=repr(offset)):
+                    with self.assertRaises(ValueError):
+                        run_gps_spoof(None, offset, "NONE")
+        read_position.assert_not_called()
 
 
 if __name__ == "__main__":
