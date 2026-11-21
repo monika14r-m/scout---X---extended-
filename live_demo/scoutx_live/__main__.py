@@ -118,7 +118,22 @@ def send_command_and_confirm(master, command, params, label, timeout=8):
     raise TimeoutError(f"No COMMAND_ACK received for {label} within {timeout} seconds.")
 
 
+def validate_gps_spoof_offset(offset_m):
+    """Reject invalid GPS spoof offsets before establishing MAVLink connections."""
+    message = "GPS spoof offset must be a finite non-negative number"
+    if isinstance(offset_m, bool):
+        raise ValueError(message)
+    try:
+        offset = float(offset_m)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(message) from exc
+    if not math.isfinite(offset) or offset < 0:
+        raise ValueError(message)
+    return offset
+
+
 def run_gps_spoof(master, offset_m, response):
+    offset_m = validate_gps_spoof_offset(offset_m)
     gps, pos = read_position(master)
     print("\n[BASELINE] Live SITL GPS / position")
     print(json.dumps({"gps": gps, "position": pos}, indent=2))
@@ -269,6 +284,8 @@ def main():
     run.add_argument("--gcs-startup-timeout-s", type=float, default=15.0, help="How long to wait for the first GCS heartbeat before aborting Case 2")
     run.add_argument("--response", choices=["NONE", "LOITER", "RTL"], default="NONE")
     args = parser.parse_args()
+    if args.command == "run" and args.case == "gps-spoof":
+        args.offset_m = validate_gps_spoof_offset(args.offset_m)
     master = connect_vehicle(args.connect, args.heartbeat_timeout)
     if args.command == "status":
         gps, pos = read_position(master)
@@ -284,7 +301,7 @@ def main():
     elif args.case == "case3-critical-hijack":
         run_critical(master)
     elif args.case == "gps-spoof":
-        run_gps_spoof(master, max(0.0, args.offset_m), args.response)
+        run_gps_spoof(master, args.offset_m, args.response)
 
 
 if __name__ == "__main__":
