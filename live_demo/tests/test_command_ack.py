@@ -17,6 +17,7 @@ except ModuleNotFoundError:
     sys.modules["pymavlink"] = pymavlink_stub
 
 from scoutx_live.__main__ import (
+    read_position,
     run_gps_spoof,
     send_command_and_confirm,
     validate_gps_spoof_offset,
@@ -258,6 +259,77 @@ class GPSOffsetValidationTests(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         run_gps_spoof(None, offset, "NONE")
         read_position.assert_not_called()
+
+
+class FakePositionMessage:
+    def __init__(self, message_type, **fields):
+        self.message_type = message_type
+        for name, value in fields.items():
+            setattr(self, name, value)
+
+    def get_type(self):
+        return self.message_type
+
+
+class FakePositionMaster:
+    def __init__(self, messages=()):
+        self.messages = list(messages)
+
+    def recv_match(self, **kwargs):
+        if self.messages:
+            return self.messages.pop(0)
+        return None
+
+
+class ReadPositionTests(unittest.TestCase):
+    def test_returns_gps_and_position_without_wall_clock(self):
+        master = FakePositionMaster([
+            FakePositionMessage(
+                "GPS_RAW_INT",
+                lat=374000000,
+                lon=-1220000000,
+                fix_type=3,
+                satellites_visible=11,
+                eph=80,
+            ),
+            FakePositionMessage(
+                "GLOBAL_POSITION_INT",
+                lat=374000001,
+                lon=-1220000001,
+                relative_alt=12000,
+                vx=3,
+                vy=-4,
+            ),
+        ])
+        with (
+            patch("scoutx_live.__main__.time.monotonic", return_value=100.0),
+            patch("scoutx_live.__main__.time.time", side_effect=AssertionError("wall clock used")),
+        ):
+            gps, position = read_position(master, timeout=2)
+
+        self.assertEqual(gps["fix_type"], 3)
+        self.assertEqual(gps["satellites_visible"], 11)
+        self.assertEqual(position["relative_alt_m"], 12.0)
+        self.assertEqual(position["vx_cms"], 3)
+        self.assertEqual(position["vy_cms"], -4)
+
+    def test_raises_timeout_using_monotonic_clock(self):
+        master = FakePositionMaster()
+        with (
+            patch("scoutx_live.__main__.time.monotonic", side_effect=[100.0, 100.0, 102.0]),
+            patch("scoutx_live.__main__.time.time", side_effect=AssertionError("wall clock used")),
+        ):
+            with self.assertRaisesRegex(TimeoutError, "No usable GPS_RAW_INT"):
+                read_position(master, timeout=1)
+
+    def test_rejects_invalid_timeouts_before_waiting(self):
+        invalid_timeouts = (0, -1, float("nan"), float("inf"), float("-inf"), "bad", True, None)
+        with patch("scoutx_live.__main__.time.monotonic") as monotonic:
+            for timeout in invalid_timeouts:
+                with self.subTest(timeout=repr(timeout)):
+                    with self.assertRaises(ValueError):
+                        read_position(FakePositionMaster(), timeout=timeout)
+            monotonic.assert_not_called()
 
 
 if __name__ == "__main__":

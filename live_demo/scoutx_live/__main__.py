@@ -32,9 +32,19 @@ def connect_vehicle(endpoint, timeout):
 
 
 def read_position(master, timeout=8):
-    deadline = time.time() + timeout
+    message = "telemetry timeout must be a finite positive number"
+    if isinstance(timeout, bool):
+        raise ValueError(message)
+    try:
+        timeout_s = float(timeout)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(message) from exc
+    if not math.isfinite(timeout_s) or timeout_s <= 0:
+        raise ValueError(message)
+
+    deadline = time.monotonic() + timeout_s
     gps = pos = None
-    while time.time() < deadline:
+    while time.monotonic() < deadline:
         msg = master.recv_match(type=["GLOBAL_POSITION_INT", "GPS_RAW_INT", "VFR_HUD"], blocking=True, timeout=1)
         if msg is None:
             continue
