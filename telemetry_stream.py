@@ -58,6 +58,13 @@ class TelemetryStream:
             self.samples.pop(0)
 
     def recent(self, n: int) -> List[TelemetrySample]:
+        """Return the latest n samples; n must be a non-negative integer."""
+        if isinstance(n, bool) or not isinstance(n, int):
+            raise TypeError("n must be an integer")
+        if n < 0:
+            raise ValueError("n must be non-negative")
+        if n == 0:
+            return []
         return self.samples[-n:]
 
     def dump_json(self, path: str, strip_ground_truth: bool = False):
