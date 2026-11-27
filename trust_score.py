@@ -8,6 +8,7 @@ recovers gradually when normal telemetry is received.
 Score:
     1.0  -> normal / trusted
     0.0  -> highly suspicious
+
 The engine does not use attack labels during detection.
 """
 
@@ -28,10 +29,9 @@ class TrustScoreEngine:
     # ------------------------------------------------------------------
     # Utility
     # ------------------------------------------------------------------
+
     @staticmethod
     def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
-        # Non-finite telemetry-derived scores must fail closed. Python's
-        # min/max ordering can otherwise turn NaN into a trusted score.
         if not math.isfinite(value):
             return low
         return max(low, min(high, value))
@@ -39,6 +39,7 @@ class TrustScoreEngine:
     # ------------------------------------------------------------------
     # Telemetry checks
     # ------------------------------------------------------------------
+
     def _check_gps_kinematics(self, sample) -> float:
         """Check whether reported GPS speed is physically reasonable."""
 
@@ -162,6 +163,7 @@ class TrustScoreEngine:
     # ------------------------------------------------------------------
     # Trust update
     # ------------------------------------------------------------------
+
     def _update_trust(self, checks: dict) -> float:
         """
         Update the running trust score.
@@ -187,6 +189,7 @@ class TrustScoreEngine:
     # ------------------------------------------------------------------
     # Main evaluation
     # ------------------------------------------------------------------
+
     def evaluate(self, sample) -> dict:
 
         checks = {
@@ -224,7 +227,7 @@ class TrustScoreEngine:
             else:
                 component_scores[component] = min(
                     component_scores[component],
-                    score,
+                    score
                 )
 
         self.trust_score = self._update_trust(checks)
