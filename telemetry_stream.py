@@ -50,9 +50,9 @@ class TelemetryStream:
 
     def __init__(self, maxlen: int = 5000):
         if isinstance(maxlen, bool) or not isinstance(maxlen, int):
-            raise TypeError("maxlen must be a positive integer")
-        if maxlen <= 0:
-            raise ValueError("maxlen must be positive")
+            raise TypeError("maxlen must be a non-negative integer")
+        if maxlen < 0:
+            raise ValueError("maxlen must be non-negative")
         self.maxlen = maxlen
         self.samples: List[TelemetrySample] = []
 
