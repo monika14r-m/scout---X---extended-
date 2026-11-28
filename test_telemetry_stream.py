@@ -50,16 +50,20 @@ class TelemetryStreamRecentTests(unittest.TestCase):
             stream.append(sample(seq))
         self.assertEqual([s.seq for s in stream.recent(10)], [2, 3])
 
-    def test_maxlen_must_be_positive(self):
-        for value in (0, -1):
-            with self.subTest(value=value):
-                with self.assertRaisesRegex(ValueError, "positive"):
-                    TelemetryStream(maxlen=value)
+    def test_zero_maxlen_disables_history(self):
+        stream = TelemetryStream(maxlen=0)
+        stream.append(sample(1))
+        self.assertEqual(stream.samples, [])
+        self.assertEqual(stream.recent(1), [])
+
+    def test_negative_maxlen_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "non-negative"):
+            TelemetryStream(maxlen=-1)
 
     def test_maxlen_must_be_integer(self):
         for value in (1.5, True, "2"):
             with self.subTest(value=value):
-                with self.assertRaisesRegex(TypeError, "positive integer"):
+                with self.assertRaisesRegex(TypeError, "non-negative integer"):
                     TelemetryStream(maxlen=value)
 
 
